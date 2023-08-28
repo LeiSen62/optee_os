@@ -954,6 +954,50 @@ static void check_sec_nsec_mem_config(void)
 	}
 }
 
+#if defined(CFG_CORE_FFA)
+static void collect_device_mem_ranges(struct tee_mmap_region *memory_map,
+				      size_t num_elems, size_t *last)
+{
+	const char *compatible = "arm,ffa-manifest-device-regions";
+	void *fdt = get_manifest_dt();
+	const char *name = NULL;
+	uint64_t pages_cnt = 0;
+	uint64_t base = 0;
+	int subnode = 0;
+	int node = 0;
+
+	node = fdt_node_offset_by_compatible(fdt, 0, compatible);
+	if (node < 0)
+		return;
+
+	fdt_for_each_subnode(subnode, fdt, node) {
+		name = fdt_get_name(fdt, subnode, NULL);
+		if (!name)
+			continue;
+
+		if (dt_getprop_as_number(fdt, subnode, "base-address",
+					 &base)) {
+			EMSG("Mandatory field is missing: base-address");
+			continue;
+		}
+
+		if (base & SMALL_PAGE_MASK) {
+			EMSG("base-address is not page aligned");
+			continue;
+		}
+
+		if (dt_getprop_as_number(fdt, subnode, "pages-count",
+					 &pages_cnt)) {
+			EMSG("Mandatory field is missing: pages-count");
+			continue;
+		}
+
+		add_phys_mem(memory_map, num_elems, name, MEM_AREA_IO_SEC,
+			     base, base + pages_cnt * SMALL_PAGE_SIZE, last);
+	}
+}
+#endif
+
 static size_t collect_mem_ranges(struct tee_mmap_region *memory_map,
 				 size_t num_elems)
 {
@@ -1019,6 +1063,9 @@ static size_t collect_mem_ranges(struct tee_mmap_region *memory_map,
 	}
 
 #undef ADD_PHYS_MEM
+
+	if (IS_ENABLED(CFG_CORE_FFA)
+		collect_device_mem_ranges(memory_map, num_elems, &last);
 
 	for (mem = phys_mem_map_begin; mem < phys_mem_map_end; mem++) {
 		/* Only unmapped virtual range may have a null phys addr */
